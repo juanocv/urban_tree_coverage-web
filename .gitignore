@@ -1,0 +1,10 @@
+# Editors / OS
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Local tooling
+.claude/
+node_modules/

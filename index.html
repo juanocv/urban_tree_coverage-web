@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="auto">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Urban Tree Coverage — console de análise</title>
+<meta name="description" content="Console web para a API do Urban Tree Coverage: cobertura arbórea visível de ruas estimada a partir de imagens do Google Street View por segmentação semântica." />
+<meta name="color-scheme" content="light dark" />
+<meta name="theme-color" content="#0d1411" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#f6f8f4" media="(prefers-color-scheme: light)" />
+
+<meta property="og:title" content="Urban Tree Coverage" />
+<meta property="og:description" content="Cobertura arbórea visível de ruas, a partir de imagens do Street View." />
+<meta property="og:type" content="website" />
+
+<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="assets/css/app.css" />
+
+<script>
+  // Applied before first paint so the theme never flashes.
+  (function () {
+    try {
+      var stored = localStorage.getItem("utc.theme");
+      if (stored === "light" || stored === "dark") {
+        document.documentElement.dataset.theme = stored;
+      }
+    } catch (e) { /* storage unavailable */ }
+  })();
+</script>
+</head>
+
+<body>
+<a class="skip-link" href="#results" data-i18n="a11y.skip">Ir para os resultados</a>
+
+<header class="masthead">
+  <div class="masthead__brand">
+    <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+      <circle class="mark__ring" cx="20" cy="20" r="18" fill="none" />
+      <path class="mark__canopy" d="M20 7c4.6 0 8.3 3.5 8.3 7.9 0 1.3-.3 2.5-.9 3.6 1.6 1 2.6 2.7 2.6 4.6 0 3.1-2.6 5.6-5.9 5.6h-8.2c-3.3 0-5.9-2.5-5.9-5.6 0-1.9 1-3.6 2.6-4.6a7.6 7.6 0 0 1-.9-3.6C11.7 10.5 15.4 7 20 7Z" />
+      <path class="mark__trunk" d="M20 28.7V34" fill="none" stroke-linecap="round" />
+    </svg>
+    <div class="masthead__titles">
+      <h1 data-i18n="app.name">Urban Tree Coverage</h1>
+      <p data-i18n="app.tagline">Cobertura arbórea visível de ruas, a partir de imagens do Street View</p>
+    </div>
+  </div>
+
+  <div class="masthead__tools">
+    <button id="status-pill" class="pill" type="button" data-state="offline">
+      <span class="pill__dot" aria-hidden="true"></span>
+      <span class="pill__text" data-i18n="status.offline">Sem conexão</span>
+    </button>
+    <button id="lang-toggle" class="icon-btn icon-btn--text" type="button"
+            data-i18n="app.langToggle" data-i18n-aria="app.langToggleAria">English</button>
+    <button id="theme-toggle" class="icon-btn" type="button" data-i18n-aria="app.themeAria">
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-sun">
+        <circle cx="12" cy="12" r="4.2" /><g stroke-linecap="round">
+        <path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6" /></g>
+      </svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-moon">
+        <path d="M20 14.4A8.6 8.6 0 0 1 9.6 4a8.6 8.6 0 1 0 10.4 10.4Z" />
+      </svg>
+    </button>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- ───────────────────────── control panel ───────────────────────── -->
+  <aside class="panel">
+    <form id="analysis-form" novalidate>
+
+      <fieldset class="field-group">
+        <legend data-i18n="conn.legend">Conexão com a API</legend>
+        <div class="field">
+          <label for="base-url" data-i18n="conn.baseUrl">Endereço da API</label>
+          <div class="field__row">
+            <input id="base-url" name="baseUrl" type="url" inputmode="url" spellcheck="false"
+                   autocomplete="off" placeholder="http://127.0.0.1:8000" value="http://127.0.0.1:8000" />
+            <button id="test-connection" class="btn btn--ghost" type="button"
+                    data-i18n="conn.test">Testar conexão</button>
+          </div>
+          <p class="hint" data-i18n="conn.baseUrlHint" data-i18n-html>Aponte para a instância do <code>urban_canopy.webapi</code> que você está executando.</p>
+          <p id="conn-feedback" class="feedback" hidden></p>
+          <button id="open-help" class="link-btn" type="button" data-i18n="conn.help">Como executar a API</button>
+        </div>
+      </fieldset>
+
+      <fieldset class="field-group">
+        <legend>
+          <span data-i18n="loc.legend">Local</span>
+          <span class="tag tag--required" data-i18n="loc.required">obrigatório</span>
+        </legend>
+
+        <div class="segmented" role="radiogroup" data-i18n-aria="loc.legend">
+          <label class="segmented__option">
+            <input type="radio" name="locationMode" value="address" checked />
+            <span data-i18n="loc.modeAddress">Endereço</span>
+          </label>
+          <label class="segmented__option">
+            <input type="radio" name="locationMode" value="coords" />
+            <span data-i18n="loc.modeCoords">Coordenadas</span>
+          </label>
+        </div>
+
+        <div class="field" data-when="location:address">
+          <label for="address" data-i18n="loc.address">Endereço</label>
+          <input id="address" name="address" type="text" autocomplete="street-address"
+                 data-i18n-placeholder="loc.addressPlaceholder" placeholder="Av. Paulista 1578, São Paulo" />
+          <p class="hint" data-i18n="loc.addressHint">Geocodificado pela API. Ignorado quando latitude e longitude são informadas.</p>
+        </div>
+
+        <div class="field" data-when="location:coords">
+          <div class="field__grid">
+            <div>
+              <label for="lat" data-i18n="loc.lat">Latitude</label>
+              <input id="lat" name="lat" type="number" step="any" min="-90" max="90"
+                     inputmode="decimal" placeholder="-23.678479" />
+            </div>
+            <div>
+              <label for="lon" data-i18n="loc.lon">Longitude</label>
+              <input id="lon" name="lon" type="number" step="any" min="-180" max="180"
+                     inputmode="decimal" placeholder="-46.559621" />
+            </div>
+          </div>
+          <p class="hint" data-i18n="loc.coordsHint">Graus decimais. Latitude entre −90 e 90, longitude entre −180 e 180.</p>
+          <button id="geolocate" class="link-btn" type="button" data-i18n="loc.useMyLocation">Usar minha localização</button>
+        </div>
+
+        <p id="location-error" class="feedback feedback--error" hidden></p>
+      </fieldset>
+
+      <fieldset class="field-group">
+        <legend>
+          <span data-i18n="mode.legend">Estratégia de vistas</span>
+          <span class="tag tag--required" data-i18n="loc.required">obrigatório</span>
+        </legend>
+        <div class="cards" role="radiogroup" data-i18n-aria="mode.legend">
+          <label class="card-option">
+            <input type="radio" name="viewMode" value="single" checked />
+            <span class="card-option__body">
+              <svg viewBox="0 0 32 32" aria-hidden="true" class="card-option__icon">
+                <circle cx="16" cy="16" r="2.6" />
+                <path d="M16 13.4V4" stroke-linecap="round" />
+                <path d="M9.5 9.5A9.2 9.2 0 0 1 16 6.8a9.2 9.2 0 0 1 6.5 2.7" fill="none" stroke-linecap="round" />
+              </svg>
+              <span class="card-option__text">
+                <strong data-i18n="mode.single">Vista única</strong>
+                <small data-i18n="mode.singleDesc">Um enquadramento, uma medida.</small>
+              </span>
+            </span>
+          </label>
+          <label class="card-option">
+            <input type="radio" name="viewMode" value="multi" />
+            <span class="card-option__body">
+              <svg viewBox="0 0 32 32" aria-hidden="true" class="card-option__icon">
+                <circle cx="16" cy="16" r="2.6" />
+                <path d="M16 13.4V4M18.6 16H28M16 18.6V28M13.4 16H4" stroke-linecap="round" />
+              </svg>
+              <span class="card-option__text">
+                <strong data-i18n="mode.multi">Multivista</strong>
+                <small data-i18n="mode.multiDesc">Várias direções e uma estatística agregada.</small>
+              </span>
+            </span>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset class="field-group">
+        <legend>
+          <span data-i18n="capture.legend">Captura</span>
+          <span class="tag" data-i18n="loc.optional">opcional</span>
+        </legend>
+
+        <div class="field" data-when="view:single">
+          <div class="field__label">
+            <label for="heading" data-i18n="capture.heading">Direção (heading)</label>
+            <input class="field__num" type="number" data-sync="heading" min="0" max="359" step="1"
+                   value="0" data-i18n-aria="capture.heading" />
+          </div>
+          <input id="heading" name="heading" type="range" min="0" max="359" step="1" value="0" />
+          <p class="hint" data-i18n="capture.headingHint">0° = norte, 90° = leste.</p>
+        </div>
+
+        <div class="field" data-when="view:multi">
+          <div class="field__label">
+            <label for="referenceHeading" data-i18n="capture.referenceHeading">Direção de referência</label>
+            <input class="field__num" type="number" data-sync="referenceHeading" min="0" max="359" step="1"
+                   value="0" data-i18n-aria="capture.referenceHeading" />
+          </div>
+          <input id="referenceHeading" name="referenceHeading" type="range" min="0" max="359" step="1" value="0" />
+          <p class="hint" data-i18n="capture.referenceHeadingHint">Tipicamente a orientação da rua. As demais vistas derivam dela.</p>
+        </div>
+
+        <div class="field">
+          <div class="field__label">
+            <label for="pitch" data-i18n="capture.pitch">Inclinação (pitch)</label>
+            <input class="field__num" type="number" data-sync="pitch" min="-90" max="90" step="1"
+                   value="0" data-i18n-aria="capture.pitch" />
+          </div>
+          <input id="pitch" name="pitch" type="range" min="-90" max="90" step="1" value="0" />
+          <p class="hint" data-i18n="capture.pitchHint">Negativo aponta para baixo, positivo para cima.</p>
+        </div>
+
+        <div class="field">
+          <div class="field__label">
+            <label for="fov" data-i18n="capture.fov">Campo de visão (fov)</label>
+            <input class="field__num" type="number" data-sync="fov" min="10" max="120" step="1"
+                   value="90" data-i18n-aria="capture.fov" />
+          </div>
+          <input id="fov" name="fov" type="range" min="10" max="120" step="1" value="90" />
+          <p class="hint" data-i18n="capture.fovHint">Ângulos menores aproximam a cena.</p>
+        </div>
+
+        <div class="field">
+          <label for="size" data-i18n="capture.size">Tamanho da imagem</label>
+          <input id="size" name="size" type="text" list="size-presets" spellcheck="false"
+                 autocomplete="off" value="640x640" pattern="[1-9][0-9]*x[1-9][0-9]*" />
+          <datalist id="size-presets">
+            <option value="640x640"></option>
+            <option value="640x400"></option>
+            <option value="600x400"></option>
+            <option value="800x600"></option>
+            <option value="1024x768"></option>
+          </datalist>
+          <p class="hint" data-i18n="capture.sizeHint">LARGURAxALTURA, máximo 4096 px por lado.</p>
+        </div>
+      </fieldset>
+
+      <fieldset class="field-group" data-when="view:multi">
+        <legend>
+          <span data-i18n="plan.legend">Plano de vistas</span>
+          <span class="tag" data-i18n="loc.optional">opcional</span>
+        </legend>
+
+        <div class="field">
+          <label for="planMode" data-i18n="plan.mode">Distribuição</label>
+          <select id="planMode" name="planMode">
+            <option value="offsets" data-i18n="plan.modeOffsets">Deslocamentos</option>
+            <option value="equiangular" data-i18n="plan.modeEquiangular">Equiangular</option>
+          </select>
+        </div>
+
+        <div class="field" data-when="plan:offsets">
+          <label for="offsets" data-i18n="plan.offsets">Deslocamentos (graus)</label>
+          <input id="offsets" name="offsets" type="text" inputmode="numeric" spellcheck="false"
+                 autocomplete="off" value="0, 90, 180, 270" />
+          <p class="hint" data-i18n="plan.offsetsHint">Somados à direção de referência. Separe por vírgula.</p>
+        </div>
+
+        <div class="field" data-when="plan:equiangular">
+          <div class="field__label">
+            <label for="nViews" data-i18n="plan.nViews">Número de vistas</label>
+            <input class="field__num" type="number" data-sync="nViews" min="1" max="16" step="1"
+                   value="4" data-i18n-aria="plan.nViews" />
+          </div>
+          <input id="nViews" name="nViews" type="range" min="1" max="16" step="1" value="4" />
+          <p class="hint" data-i18n="plan.nViewsHint">Distribuídas uniformemente em 360°.</p>
+        </div>
+
+        <div class="plan-preview">
+          <div id="plan-dial" class="plan-preview__dial"></div>
+          <div class="plan-preview__body">
+            <span class="plan-preview__title" data-i18n="plan.preview">Direções planejadas</span>
+            <p id="plan-headings" class="plan-preview__list">0° · 90° · 180° · 270°</p>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field__label">
+            <label for="minSuccessfulViews" data-i18n="plan.minViews">Mínimo de vistas bem-sucedidas</label>
+            <input class="field__num" type="number" data-sync="minSuccessfulViews" min="1" max="16" step="1"
+                   value="1" data-i18n-aria="plan.minViews" />
+          </div>
+          <input id="minSuccessfulViews" name="minSuccessfulViews" type="range" min="1" max="16" step="1" value="1" />
+          <p class="hint" data-i18n="plan.minViewsHint">A execução falha se menos vistas produzirem um resultado utilizável.</p>
+        </div>
+      </fieldset>
+
+      <fieldset class="field-group">
+        <legend>
+          <span data-i18n="model.legend">Modelo e máscara</span>
+          <span class="tag" data-i18n="loc.optional">opcional</span>
+        </legend>
+
+        <label class="switch">
+          <input type="checkbox" name="refine" checked />
+          <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+          <span class="switch__body">
+            <strong data-i18n="model.refine">Refinar a máscara</strong>
+            <small data-i18n="model.refineHint">Limpeza conservadora, com trava de crescimento. Desligue para ver a máscara bruta.</small>
+          </span>
+        </label>
+
+        <label class="switch">
+          <input type="checkbox" name="allowVegetationProxy" />
+          <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+          <span class="switch__body">
+            <strong data-i18n="model.proxy">Permitir vegetação como proxy de árvore</strong>
+            <small data-i18n="model.proxyHint">Só para backends cujo espaço de classes não distingue árvores. O resultado é marcado como proxy.</small>
+          </span>
+        </label>
+
+        <label class="switch" data-when="view:single">
+          <input type="checkbox" name="returnOverlays" checked />
+          <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+          <span class="switch__body">
+            <strong data-i18n="model.overlays">Retornar imagens sobrepostas</strong>
+            <small data-i18n="model.overlaysHint">RGB, máscara e sobreposição em PNG. Disponível apenas na vista única.</small>
+          </span>
+        </label>
+      </fieldset>
+
+      <div class="panel__actions">
+        <button id="submit" class="btn btn--primary" type="submit">
+          <span class="btn__spinner" aria-hidden="true"></span>
+          <span class="btn__label" data-i18n="actions.analyse">Analisar</span>
+        </button>
+        <button id="reset" class="btn btn--ghost" type="reset" data-i18n="actions.reset">Limpar</button>
+      </div>
+      <button id="load-demo" class="link-btn link-btn--block" type="button"
+              data-i18n-title="actions.demoHint" data-i18n="actions.demo">Ver exemplo</button>
+    </form>
+  </aside>
+
+  <!-- ───────────────────────────  results  ─────────────────────────── -->
+  <section id="results" class="results" aria-live="polite" aria-busy="false">
+    <div class="state state--empty" id="state-empty">
+      <svg viewBox="0 0 64 64" aria-hidden="true" class="state__art">
+        <circle cx="32" cy="30" r="21" fill="none" class="state__ring" />
+        <path class="state__canopy" d="M32 15c5.4 0 9.8 4.1 9.8 9.2 0 1.5-.4 2.9-1.1 4.2 1.9 1.2 3.1 3.2 3.1 5.4 0 3.6-3.1 6.6-6.9 6.6H27c-3.8 0-6.9-3-6.9-6.6 0-2.2 1.2-4.2 3.1-5.4a9 9 0 0 1-1.1-4.2c0-5.1 4.4-9.2 9.9-9.2Z" />
+        <path class="state__trunk" d="M32 40.4V51" fill="none" stroke-linecap="round" />
+      </svg>
+      <h2 data-i18n="empty.title">Nenhuma análise ainda</h2>
+      <p data-i18n="empty.body" data-i18n-html>Informe um endereço ou um par de coordenadas e execute a análise.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="colophon">
+  <p data-i18n="footer.note">As medidas vêm da API; este site apenas as apresenta.</p>
+  <nav>
+    <a href="https://github.com/juanocv/urban_canopy" rel="noopener" data-i18n="footer.repo">Repositório</a>
+    <a id="docs-link" href="http://127.0.0.1:8000/docs" rel="noopener" data-i18n="footer.docs">Documentação da API</a>
+    <a href="https://www.apache.org/licenses/LICENSE-2.0" rel="noopener license" data-i18n="footer.license">Apache 2.0</a>
+  </nav>
+</footer>
+
+<dialog id="help-dialog" class="dialog">
+  <form method="dialog" class="dialog__close-form">
+    <button class="icon-btn" data-i18n-aria="help.close" value="close">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" /></svg>
+    </button>
+  </form>
+  <h2 data-i18n="help.title">Executando a API localmente</h2>
+  <p data-i18n="help.intro" data-i18n-html>Este site é estático e não processa imagens.</p>
+  <pre><code>python -m pip install -e ".[api,ml]"
+uvicorn urban_canopy.webapi:app --host 127.0.0.1 --port 8000</code></pre>
+  <p data-i18n="help.cors" data-i18n-html>Depois libere a origem deste site no CORS da API:</p>
+  <pre><code id="cors-snippet">UC_API_CORS_ORIGINS=https://juanocv.github.io</code></pre>
+  <p class="note" data-i18n="help.https" data-i18n-html>Um navegador em HTTPS só aceita chamadas HTTP para <code>localhost</code>.</p>
+  <p class="note note--warn" data-i18n="help.key">A API chama uma API paga do Google a cada requisição e não tem autenticação.</p>
+</dialog>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>
