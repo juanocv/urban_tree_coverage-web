@@ -178,6 +178,7 @@ function buildRequest(values) {
     min_successful_views: values.minSuccessfulViews,
     refine: values.refine,
     allow_vegetation_proxy: values.allowVegetationProxy,
+    return_overlays: values.returnOverlays,
   };
   // The API validates both fields regardless of mode; send only the live one's
   // value and leave the other at its server-side default.
@@ -186,6 +187,13 @@ function buildRequest(values) {
 
   return { path: "/analyse/multi", body };
 }
+
+/**
+ * The API's own ceiling on overlay-bearing views. The server is authoritative —
+ * its limit is configurable and it answers 422 — so this only warns, never
+ * blocks, and an instance raised above the default still works.
+ */
+const DEFAULT_MAX_OVERLAY_VIEWS = 8;
 
 /* ------------------------------------------------- conditional display -- */
 
@@ -223,6 +231,18 @@ function updatePlanPreview() {
   minViews.max = String(cap);
   if (Number(minViews.value) > cap) minViews.value = String(cap);
   syncNumericReadouts();
+  updateOverlayWarning(values, headings.length);
+}
+
+/** Flag the payload cost before a large multi-view run pays for it. */
+function updateOverlayWarning(values, plannedCount) {
+  const node = $("#overlay-warning");
+  const risky =
+    values.viewMode === "multi" &&
+    values.returnOverlays &&
+    plannedCount > DEFAULT_MAX_OVERLAY_VIEWS;
+  node.hidden = !risky;
+  node.textContent = risky ? t("model.overlaysCost", { max: DEFAULT_MAX_OVERLAY_VIEWS }) : "";
 }
 
 /* ------------------------------------------------------- connection UI -- */
@@ -471,6 +491,7 @@ function writeUrlState(values) {
   params.set("size", values.size);
   if (!values.refine) params.set("refine", "0");
   if (values.allowVegetationProxy) params.set("proxy", "1");
+  if (!values.returnOverlays) params.set("overlays", "0");
 
   history.replaceState(null, "", `${location.pathname}?${params}`);
 }
@@ -515,6 +536,7 @@ function readUrlState() {
   setValue("#minSuccessfulViews", params.get("min_views"));
   if (params.get("refine") === "0") setCheck("refine", false);
   if (params.get("proxy") === "1") setCheck("allowVegetationProxy", true);
+  if (params.get("overlays") === "0") setCheck("returnOverlays", false);
   if (params.get("api")) setValue("#base-url", params.get("api"));
 }
 
@@ -536,7 +558,11 @@ form.addEventListener("input", (event) => {
   if (target.name === "viewMode" || target.name === "locationMode" || target.id === "planMode") {
     updateConditionalFields();
   }
-  if (["referenceHeading", "offsets", "nViews", "planMode"].includes(target.id)) {
+  if (
+    ["referenceHeading", "offsets", "nViews", "planMode"].includes(target.id) ||
+    target.name === "viewMode" ||
+    target.name === "returnOverlays"
+  ) {
     updatePlanPreview();
   }
   if (target.id === "base-url") refreshConnectionCopy();

@@ -36,7 +36,7 @@ substituído por outro número.
 | `size` (tamanho) | `640x640` | ambos |
 | `refine` (refinar máscara) | ligado | ambos |
 | `allow_vegetation_proxy` | desligado | ambos |
-| `return_overlays` | ligado | vista única |
+| `return_overlays` | ligado | ambos |
 
 **Saídas**
 
@@ -49,6 +49,11 @@ substituído por outro número.
   por vista, uma barra de dispersão interquartil e a tabela agregada completa
   (média, mediana, p25, p75, IIQ, desvio-padrão, mínimo, máximo) para árvore e
   vegetação.
+- Com `return_overlays` ligado, a multivista também mostra um quadro por direção
+  numa galeria. Uma única barra de abas comanda todas as miniaturas ao mesmo
+  tempo, então o que o olho compara entre direções é sempre a mesma camada;
+  clicar numa miniatura abre aquela direção em tamanho cheio, com seu próprio
+  comparador deslizante.
 - Contabilidade do refinamento: área bruta, área refinada, componentes
   removidos, buracos preenchidos e se a trava de crescimento foi acionada.
 - Proveniência da captura (id do panorama, data, coordenadas) e do backend
@@ -81,6 +86,12 @@ UC_API_CORS_ORIGINS=https://juanocv.github.io
 Cole o endereço da API no campo **Conexão com a API**. Ele fica guardado no
 `localStorage`, e `?api=http://127.0.0.1:8000` sobrescreve por link.
 
+As imagens dominam o tamanho da resposta — cerca de um megabyte de PNG por
+quadro, três quadros por vista —, então o `/analyse/multi` recusa planos acima de
+`UC_API_MAX_OVERLAY_VIEWS` (padrão 8) quando há pedido de imagens. O console
+avisa antes de você enviar um plano assim, mas o servidor continua sendo a
+autoridade: aumente essa configuração e uma varredura maior funciona.
+
 > A API não tem autenticação e chama uma API paga do Google a cada requisição.
 > Mantenha-a em localhost ou atrás de um proxy.
 
@@ -94,11 +105,13 @@ esse caso e avisa, em vez de falhar em silêncio. Sirva uma API assim por HTTPS.
 
 ## Experimentando sem uma API
 
-**Ver exemplo** renderiza resultados armazenados de duas execuções reais do
-pipeline, uma vista única e uma varredura de quatro direções, pelo mesmo
-renderizador usado numa resposta ao vivo. Os números saíram do `tree-ai`; a
-imagem é o quadro de exemplo que o repositório `urban_canopy` já publica em
-`samples/images/`.
+**Ver exemplo** renderiza resultados armazenados de uma execução real do
+pipeline — uma vista única e uma varredura de quatro direções, com imagens —
+pelo mesmo renderizador usado numa resposta ao vivo. Os números saíram do código
+deste próprio projeto; os quadros são a varredura de quatro direções que o
+repositório `urban_canopy` já publica em `samples/images/`. A cobertura nessa
+varredura vai de 0,80% a 31,97%, contraste suficiente para mostrar para que
+serve a comparação.
 
 ## Desenvolvimento local
 

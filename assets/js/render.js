@@ -102,6 +102,7 @@ function card(title, body, { extra = "", className = "" } = {}) {
 
 export function renderBusy(container) {
   container.setAttribute("aria-busy", "true");
+  resetViewerDialog();
   container.innerHTML = `
   <div class="state state--busy">
     <svg viewBox="0 0 64 64" aria-hidden="true" class="state__art">
@@ -116,6 +117,7 @@ export function renderBusy(container) {
 
 export function renderEmpty(container) {
   container.setAttribute("aria-busy", "false");
+  resetViewerDialog();
   container.innerHTML = `
   <div class="state state--empty">
     <svg viewBox="0 0 64 64" aria-hidden="true" class="state__art">
@@ -130,6 +132,7 @@ export function renderEmpty(container) {
 
 export function renderError(container, error) {
   container.setAttribute("aria-busy", "false");
+  resetViewerDialog();
 
   let body = `<p class="card__note">${esc(error.message)}</p>`;
 
@@ -366,6 +369,7 @@ function sourceMeta(coverage, isDemo) {
 
 export function renderSingle(container, payload, context = {}) {
   container.setAttribute("aria-busy", "false");
+  resetViewerDialog();
 
   const coverage = payload.coverage ?? {};
   const capture = payload.capture ?? {};
@@ -410,10 +414,32 @@ export function renderSingle(container, payload, context = {}) {
   </section>`;
 
   const imagery = images
-    ? card(
-        t("res.imagery"),
-        `
-    <div class="viewer" data-viewer style="--frame-ratio:${frameRatio(capture.size)}">
+    ? card(t("res.imagery"), viewerMarkup(images, capture.size))
+    : card(t("res.imagery"), `<p class="card__note">${t("res.noImages")}</p>`);
+
+  container.innerHTML = [
+    headline,
+    imagery,
+    compositionCard(coverage),
+    refinementCard(payload.refinement),
+    captureCard(capture),
+    provenanceCard(payload.backend_provenance, {
+      classSpace: payload.class_space,
+      notes: payload.backend_notes,
+    }),
+    flagsCard(payload.quality_flags),
+    exportCard(payload, context),
+  ]
+    .filter(Boolean)
+    .join("");
+
+  wireViewer(container);
+}
+
+/** Tabbed viewer over one view's imagery: overlay, RGB, mask, and a comparer. */
+function viewerMarkup(images, size) {
+  return `
+    <div class="viewer" data-viewer style="--frame-ratio:${frameRatio(size)}">
       <div class="tabs" role="tablist">
         ${images.overlay ? tabButton("overlay", t("res.tabs.overlay"), true) : ""}
         ${images.rgb ? tabButton("rgb", t("res.tabs.rgb")) : ""}
@@ -442,27 +468,68 @@ export function renderSingle(container, payload, context = {}) {
       <p class="card__note" data-compare-hint hidden>${esc(t("res.compareHint"))}</p>`
           : ""
       }
-    </div>`
-      )
-    : card(t("res.imagery"), `<p class="card__note">${t("res.noImages")}</p>`);
+    </div>`;
+}
 
-  container.innerHTML = [
-    headline,
-    imagery,
-    compositionCard(coverage),
-    refinementCard(payload.refinement),
-    captureCard(capture),
-    provenanceCard(payload.backend_provenance, {
-      classSpace: payload.class_space,
-      notes: payload.backend_notes,
-    }),
-    flagsCard(payload.quality_flags),
-    exportCard(payload, context),
-  ]
-    .filter(Boolean)
+/**
+ * Per-heading imagery for a multi-view run.
+ *
+ * One layer is shown across every tile at once, so what the eye compares
+ * between headings is always like for like; a tile opens the full tabbed
+ * viewer for its own heading.
+ */
+function galleryCard(entries) {
+  if (!entries.length) {
+    return card(
+      t("res.imageryByHeading"),
+      `<p class="card__note">${t("res.imageryNoneMulti")}</p>`
+    );
+  }
+
+  const layers = [
+    ["overlay", t("res.tabs.overlay")],
+    ["rgb", t("res.tabs.rgb")],
+    ["mask", t("res.tabs.mask")],
+  ].filter(([key]) => entries.some((entry) => entry.images[key]));
+
+  const tiles = entries
+    .map(({ view, images }, index) => {
+      const value = view.coverage?.tree_coverage_pct;
+      const heading = deg(view.capture?.heading);
+      return `
+      <figure class="tile">
+        <button class="tile__button" type="button" data-view-index="${index}"
+                aria-label="${esc(t("res.openView", { heading }))}">
+          <span class="frame" style="--frame-ratio:${frameRatio(view.capture?.size)}">
+            ${layers
+              .map(([key], position) =>
+                images[key]
+                  ? `<img data-layer="${key}" src="${esc(images[key])}" alt="" ${
+                      position === 0 ? "" : "hidden"
+                    } />`
+                  : ""
+              )
+              .join("")}
+          </span>
+        </button>
+        <figcaption class="tile__caption">
+          <span class="tile__heading">${heading}</span>
+          <span class="tile__value">${value == null ? esc(t("res.unavailable")) : pct(value)}</span>
+        </figcaption>
+      </figure>`;
+    })
     .join("");
 
-  wireViewer(container);
+  return card(
+    t("res.imageryByHeading"),
+    `<div class="gallery" data-gallery>
+      <div class="tabs" role="tablist">
+        ${layers.map(([key, label], i) => tabButton(key, label, i === 0)).join("")}
+      </div>
+      <div class="tile-grid">${tiles}</div>
+      <p class="card__note">${esc(t("res.imageryHint"))}</p>
+    </div>`
+  );
 }
 
 function tabButton(name, label, selected = false) {
@@ -484,6 +551,7 @@ function nfDisplay(value) {
 
 export function renderMulti(container, payload, context = {}) {
   container.setAttribute("aria-busy", "false");
+  resetViewerDialog();
 
   const aggregate = payload.aggregate ?? {};
   const treeStats = aggregate.tree_coverage ?? {};
@@ -538,6 +606,11 @@ export function renderMulti(container, payload, context = {}) {
       </div>
     </div>
   </section>`;
+
+  // Views whose payload carried overlays; empty unless return_overlays was on.
+  const galleryEntries = views
+    .map((view) => ({ view, images: imageSources(view.overlays) }))
+    .filter((entry) => entry.images);
 
   const points = [
     ...views.map((view) => ({
@@ -666,6 +739,7 @@ export function renderMulti(container, payload, context = {}) {
   container.innerHTML = [
     headline,
     compass,
+    galleryCard(galleryEntries),
     aggTable,
     locationCard,
     provenanceCard(payload.backend_provenance, {
@@ -677,11 +751,84 @@ export function renderMulti(container, payload, context = {}) {
   ]
     .filter(Boolean)
     .join("");
+
+  wireGallery(container, galleryEntries);
 }
 
 /* --------------------------------------------------------- interactions -- */
 
-/** Tab switching and the before/after slider for single-view imagery. */
+/**
+ * Gallery behaviour: one tab bar drives every tile at once, and a tile opens
+ * the full tabbed viewer for its heading in a dialog.
+ */
+function wireGallery(root, entries) {
+  const gallery = root.querySelector("[data-gallery]");
+  if (!gallery) return;
+
+  const tabs = [...gallery.querySelectorAll("[data-tab]")];
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const layer = tab.dataset.tab;
+      tabs.forEach((other) => other.setAttribute("aria-selected", String(other === tab)));
+      gallery.querySelectorAll("[data-layer]").forEach((img) => {
+        img.hidden = img.dataset.layer !== layer;
+      });
+      // The mask reads as a silhouette, so it wants a black ground behind it.
+      gallery.querySelectorAll(".tile .frame").forEach((frame) => {
+        frame.classList.toggle("frame--mask", layer === "mask");
+      });
+    });
+  });
+
+  gallery.querySelectorAll("[data-view-index]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const entry = entries[Number(button.dataset.viewIndex)];
+      if (entry) openViewerDialog(entry);
+    });
+  });
+}
+
+/**
+ * Opens one view at full size.
+ *
+ * A single dialog element is reused and its contents replaced on each opening,
+ * so at most one view's imagery is ever held in the DOM. Cleanup is structural
+ * rather than tied to the `close` event, which not every engine dispatches
+ * reliably; base64 frames from a live API are heavy enough to be worth the
+ * guarantee.
+ */
+let viewerDialog = null;
+
+function openViewerDialog(entry) {
+  if (!viewerDialog) {
+    viewerDialog = document.createElement("dialog");
+    viewerDialog.className = "dialog dialog--viewer";
+    document.body.append(viewerDialog);
+  }
+
+  viewerDialog.innerHTML = `
+    <form method="dialog" class="dialog__close-form">
+      <button class="icon-btn" aria-label="${esc(t("res.closeView"))}" value="close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" /></svg>
+      </button>
+    </form>
+    <h2>${esc(t("res.view"))} ${deg(entry.view.capture?.heading)} —
+        ${pct(entry.view.coverage?.tree_coverage_pct)}</h2>
+    ${viewerMarkup(entry.images, entry.view.capture?.size)}`;
+
+  wireViewer(viewerDialog);
+  if (!viewerDialog.open) viewerDialog.showModal();
+}
+
+/** Drop the reused dialog when a new result replaces the one it belongs to. */
+function resetViewerDialog() {
+  if (!viewerDialog) return;
+  if (viewerDialog.open) viewerDialog.close();
+  viewerDialog.remove();
+  viewerDialog = null;
+}
+
+/** Tab switching and the before/after slider for one view's imagery. */
 function wireViewer(root) {
   const viewer = root.querySelector("[data-viewer]");
   if (!viewer) return;

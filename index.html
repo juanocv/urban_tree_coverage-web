@@ -303,14 +303,15 @@
           </span>
         </label>
 
-        <label class="switch" data-when="view:single">
+        <label class="switch">
           <input type="checkbox" name="returnOverlays" checked />
           <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
           <span class="switch__body">
             <strong data-i18n="model.overlays">Retornar imagens sobrepostas</strong>
-            <small data-i18n="model.overlaysHint">RGB, máscara e sobreposição em PNG. Disponível apenas na vista única.</small>
+            <small data-i18n="model.overlaysHint">RGB, máscara e sobreposição em PNG. Na multivista, um conjunto por direção.</small>
           </span>
         </label>
+        <p id="overlay-warning" class="feedback feedback--warn" hidden></p>
       </fieldset>
 
       <div class="panel__actions">

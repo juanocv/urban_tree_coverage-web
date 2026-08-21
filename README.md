@@ -35,7 +35,7 @@ replaced by a substitute.
 | `size` | `640x640` | both |
 | `refine` | on | both |
 | `allow_vegetation_proxy` | off | both |
-| `return_overlays` | on | single |
+| `return_overlays` | on | both |
 
 **Outputs**
 
@@ -47,6 +47,10 @@ replaced by a substitute.
 - For multi-view: a compass plot whose radius is the per-heading coverage, one
   card per view, an interquartile spread bar, and the full aggregate table
   (mean, median, p25, p75, IQR, std, min, max) for both tree and vegetation.
+- With `return_overlays` on, multi-view also shows one frame per heading in a
+  gallery. A single tab bar drives every tile at once, so what the eye compares
+  between headings is always the same layer; clicking a tile opens that heading
+  full size with its own compare slider.
 - Refinement accounting: raw area, refined area, components removed, holes
   filled, and whether the growth guard fired.
 - Capture provenance (panorama id, capture date, coordinates) and backend
@@ -79,6 +83,12 @@ UC_API_CORS_ORIGINS=https://juanocv.github.io
 Paste the API address into the **API connection** field. It is remembered in
 `localStorage`, and `?api=http://127.0.0.1:8000` overrides it per link.
 
+Overlays dominate the response size — roughly a megabyte of PNG per frame, three
+frames per view — so `/analyse/multi` refuses plans above
+`UC_API_MAX_OVERLAY_VIEWS` (default 8) when imagery is requested. The console
+warns before you submit such a plan, but the server stays authoritative: raise
+that setting and a larger sweep works.
+
 > The API has no authentication and calls a paid Google API on every request.
 > Keep it bound to localhost or behind a proxy.
 
@@ -92,10 +102,12 @@ case and says so instead of failing silently. Serve such an API over HTTPS.
 
 ## Trying it without an API
 
-**Load example** renders stored results from two real pipeline runs, one single
-view and one four-heading sweep, through the same renderer a live response uses.
-The figures came out of `tree-ai`; the imagery is the curated sample frame the
-`urban_canopy` repository publishes under `samples/images/`.
+**Load example** renders stored results from a real pipeline run — a single view
+and a four-heading sweep, complete with imagery — through the same renderer a
+live response uses. The figures came out of this project's own code; the frames
+are the four-heading sample sweep the `urban_canopy` repository publishes under
+`samples/images/`. Coverage across that sweep runs from 0.80% to 31.97%, which
+is enough contrast to show what the comparison is for.
 
 ## Local development
 
