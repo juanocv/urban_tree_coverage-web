@@ -103,6 +103,97 @@ Essa combinação — o site no GitHub Pages, a API na sua máquina — funciona
 API em outro host por HTTP simples é bloqueada pelo navegador; o site detecta
 esse caso e avisa, em vez de falhar em silêncio. Sirva uma API assim por HTTPS.
 
+## Acessando de qualquer lugar
+
+O console roda no GitHub Pages por HTTPS, então a API que ele chama também
+precisa estar em HTTPS — um navegador não deixa uma página HTTPS chamar HTTP
+simples em nada que não seja `localhost`. Um IPv4 público sozinho não resolve
+isso: certificados confiáveis são emitidos para nomes, não para endereços nus.
+
+O caminho que dispensa IP público e abertura de porta no roteador é um túnel da
+Cloudflare: uma conexão de saída a partir da máquina que já roda o modelo, com
+TLS e hostname resolvidos para você.
+
+### 1. Ligue a autenticação
+
+Gere um token e coloque no `.env` da API:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+```bash
+UC_API_TOKENS=<o-token-que-você-gerou>
+UC_API_CORS_ORIGINS=https://juanocv.github.io
+```
+
+`UC_API_TOKENS` aceita uma lista separada por vírgulas, então cada pessoa ou
+máquina pode ter um token distinto e você revoga um sem mexer nos outros. Com ele
+definido, `/ready` e os dois endpoints `/analyse` exigem
+`Authorization: Bearer <token>`; o `GET /ping` continua aberto para que
+verificações de uptime e a sonda de saúde do próprio túnel sigam funcionando. A
+inicialização registra qual modo está ativo — se o log disser que a autenticação
+está desligada, a instância está aberta para quem a encontrar.
+
+### 2. Suba a API presa ao localhost
+
+```bash
+uvicorn urban_canopy.webapi:app --host 127.0.0.1 --port 8000
+```
+
+Mantenha o `127.0.0.1`. O túnel conecta a partir da mesma máquina, então a API
+nunca precisa escutar numa interface pública.
+
+### 3. Exponha pelo túnel
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:8000
+```
+
+Isso imprime um endereço `https://<aleatório>.trycloudflare.com`, já suficiente
+para testar de outra rede na hora. Para um endereço que sobreviva a reinícios,
+crie um túnel nomeado contra um domínio seu:
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create urban-canopy
+cloudflared tunnel route dns urban-canopy canopy.exemplo.org
+cloudflared tunnel run urban-canopy
+```
+
+### 4. Aponte o console
+
+Abra o site, coloque `https://canopy.exemplo.org` em **Endereço da API** e o
+token em **Token de acesso**, e clique em **Testar conexão**. Os dois ficam
+guardados no `localStorage` deste navegador.
+
+O token nunca é escrito no repositório, na query string nem no link
+compartilhável — um site estático não consegue guardar segredo, então o segredo
+pertence a quem usa, não à publicação. O **Copiar cURL** segue a mesma regra:
+emite `$UC_API_TOKEN` em vez do valor literal.
+
+### O que isso protege e o que não protege
+
+Um token bearer atrás de TLS impede que estranhos gastem sua cota do Street View,
+que é o principal risco de colocar isso no ar. Não é um sistema completo de
+controle de acesso:
+
+- **Não há limite de taxa.** O `UC_API_MAX_CONCURRENCY` limita quantas
+  inferências rodam ao mesmo tempo, não quantas um portador de token pode fazer
+  por dia. Defina um teto de orçamento no console do Google Cloud e acrescente
+  uma regra de rate limiting na Cloudflare se o endpoint for compartilhado.
+- **Token é segredo ao portador.** Quem o tem, é você. Para rotacionar, edite o
+  `UC_API_TOKENS` e reinicie.
+- **O Cloudflare Access** pode ficar na frente do túnel para identidade de
+  verdade (login Google ou GitHub, políticas por pessoa) se um token
+  compartilhado não bastar. O campo de token do console ficaria sem uso, e as
+  chamadas do navegador precisariam de tratamento de `credentials` que a
+  configuração de CORS atual não habilita.
+- **As imagens do Street View** chegam a quem conseguir chamar o endpoint. As
+  sobreposições embutem imagens do Google, que têm termos de redistribuição que
+  vale ler antes de abrir demais.
+- **A máquina precisa estar ligada.** O túnel morre com ela.
+
 ## Experimentando sem uma API
 
 **Ver exemplo** renderiza resultados armazenados de uma execução real do

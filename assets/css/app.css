@@ -203,6 +203,8 @@ code, pre, .mono { font-family: var(--font-mono); font-size: .875em; }
 .pill[data-state="degraded"] .pill__dot { background: var(--c-warn); }
 .pill[data-state="error"]    { color: var(--c-danger); border-color: color-mix(in srgb, var(--c-danger) 35%, var(--border)); }
 .pill[data-state="error"]    .pill__dot { background: var(--c-danger); }
+.pill[data-state="unauthorized"] { color: var(--c-warn); border-color: color-mix(in srgb, var(--c-warn) 40%, var(--border)); }
+.pill[data-state="unauthorized"] .pill__dot { background: var(--c-warn); }
 .pill[data-state="checking"] .pill__dot { background: var(--c-info); animation: pulse 1.1s ease-in-out infinite; }
 
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
@@ -341,6 +343,23 @@ input.field__num {
 }
 input.field__num::-webkit-outer-spin-button,
 input.field__num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+input[type="password"] {
+  width: 100%;
+  padding: .5rem .65rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono); font-size: .8125rem;
+  letter-spacing: .06em;
+  transition: border-color .15s, background .15s;
+}
+input[type="password"]:hover { border-color: var(--border-2); }
+input[type="password"]:focus { background: var(--surface); }
+
+#toggle-token { padding: .4rem .6rem; flex: none; }
+.icon-eye { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+#toggle-token[aria-pressed="true"] .icon-eye { stroke: var(--c-tree); }
 
 select {
   appearance: none;

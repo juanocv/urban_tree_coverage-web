@@ -20,6 +20,7 @@ const form = $("#analysis-form");
 const results = $("#results");
 const statusPill = $("#status-pill");
 const baseUrlInput = $("#base-url");
+const tokenInput = $("#api-token");
 
 /** The last thing rendered, kept so a language switch can re-render it. */
 let lastRender = null;
@@ -100,6 +101,7 @@ function readForm() {
 
   return {
     baseUrl: api.normaliseBaseUrl(text("baseUrl")),
+    apiToken: text("apiToken"),
     locationMode: data.get("locationMode") ?? "address",
     viewMode: data.get("viewMode") ?? "single",
     address: text("address"),
@@ -268,6 +270,7 @@ function showConnFeedback(message, tone) {
 
 async function testConnection({ quiet = false } = {}) {
   const baseUrl = api.normaliseBaseUrl(baseUrlInput.value);
+  const token = tokenInput.value.trim();
   if (!baseUrl) {
     setStatus("offline");
     return;
@@ -276,7 +279,7 @@ async function testConnection({ quiet = false } = {}) {
   if (!quiet) showConnFeedback(t("conn.testing"), null);
 
   try {
-    const { state, backend } = await api.probe(baseUrl);
+    const { state, backend } = await api.probe(baseUrl, { token });
     setStatus(state);
     if (state === "online" && backend) {
       showConnFeedback(
@@ -287,8 +290,8 @@ async function testConnection({ quiet = false } = {}) {
       showConnFeedback(t("status.degraded"), "warn");
     }
   } catch (error) {
-    setStatus("error");
-    showConnFeedback(error.message, "error");
+    setStatus(error.kind === "unauthorized" ? "unauthorized" : "error");
+    showConnFeedback(error.message, error.kind === "unauthorized" ? "warn" : "error");
   }
 }
 
@@ -332,10 +335,17 @@ form.addEventListener("submit", async (event) => {
   if (problem) return;
 
   store.set("utc.baseUrl", values.baseUrl);
+  // Kept out of the URL on purpose: a shareable link must never carry a secret.
+  store.set("utc.token", values.apiToken);
   writeUrlState(values);
 
   const { path, body } = buildRequest(values);
-  const context = { request: { path, body }, baseUrl: values.baseUrl, isDemo: false };
+  const context = {
+    request: { path, body },
+    baseUrl: values.baseUrl,
+    authenticated: Boolean(values.apiToken),
+    isDemo: false,
+  };
 
   inFlight = new AbortController();
   setBusy(true);
@@ -343,13 +353,17 @@ form.addEventListener("submit", async (event) => {
 
   try {
     const call = values.viewMode === "single" ? api.analyseSingle : api.analyseMulti;
-    const payload = await call(values.baseUrl, body, { signal: inFlight.signal });
+    const payload = await call(values.baseUrl, body, {
+      token: values.apiToken,
+      signal: inFlight.signal,
+    });
     setStatus("online");
     show(values.viewMode, payload, context);
   } catch (error) {
     lastRender = null;
     renderError(results, error);
-    if (error.kind === "network" || error.kind === "mixed-content") setStatus("error");
+    if (error.kind === "unauthorized") setStatus("unauthorized");
+    else if (error.kind === "network" || error.kind === "mixed-content") setStatus("error");
   } finally {
     inFlight = null;
     setBusy(false);
@@ -447,7 +461,12 @@ function wireExports(payload, context) {
           await copy(button, JSON.stringify(payload, null, 2));
           break;
         case "curl":
-          await copy(button, api.toCurl(context.baseUrl, context.request.path, context.request.body));
+          await copy(
+            button,
+            api.toCurl(context.baseUrl, context.request.path, context.request.body, {
+              authenticated: context.authenticated,
+            })
+          );
           break;
         case "link":
           await copy(button, location.href);
@@ -573,6 +592,13 @@ form.addEventListener("change", (event) => {
   if (event.target.dataset?.sync) syncNumericReadouts();
 });
 
+$("#toggle-token").addEventListener("click", (event) => {
+  const button = event.currentTarget;
+  const revealed = tokenInput.type === "text";
+  tokenInput.type = revealed ? "password" : "text";
+  button.setAttribute("aria-pressed", String(!revealed));
+});
+
 $("#test-connection").addEventListener("click", () => testConnection());
 statusPill.addEventListener("click", () => testConnection());
 
@@ -595,6 +621,8 @@ $("#geolocate").addEventListener("click", () => {
 function boot() {
   const storedBase = store.get("utc.baseUrl");
   if (storedBase) baseUrlInput.value = storedBase;
+  const storedToken = store.get("utc.token");
+  if (storedToken) tokenInput.value = storedToken;
 
   readUrlState();
   applyTranslations();

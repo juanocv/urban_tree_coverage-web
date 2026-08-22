@@ -100,6 +100,95 @@ this site on GitHub Pages, the API on your own machine — works. An API on
 another host over plain HTTP is blocked by the browser; the site detects this
 case and says so instead of failing silently. Serve such an API over HTTPS.
 
+## Reaching it from anywhere
+
+The console runs on GitHub Pages over HTTPS, so the API it calls must be
+reachable over HTTPS too — a browser will not let an HTTPS page call plain HTTP
+on anything but `localhost`. A public IPv4 alone does not solve that: trusted
+certificates are issued for names, not bare addresses.
+
+The path that needs neither a public IP nor an open router port is a Cloudflare
+Tunnel: an outbound connection from the machine that already runs the model, with
+TLS and a hostname handled for you.
+
+### 1. Turn on authentication
+
+Generate a token and put it in the API's `.env`:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+```bash
+UC_API_TOKENS=<the-token-you-generated>
+UC_API_CORS_ORIGINS=https://juanocv.github.io
+```
+
+`UC_API_TOKENS` takes a comma-separated list, so each person or machine can hold
+a distinct token and you can revoke one without disturbing the others. With it
+set, `/ready` and both `/analyse` endpoints require
+`Authorization: Bearer <token>`; `GET /ping` stays open so uptime checks and the
+tunnel's own health probe keep working. Startup logs which mode is active — if
+the log says authentication is OFF, the instance is open to whoever finds it.
+
+### 2. Start the API bound to localhost
+
+```bash
+uvicorn urban_canopy.webapi:app --host 127.0.0.1 --port 8000
+```
+
+Keep `127.0.0.1`. The tunnel connects from the same machine, so the API never
+needs to listen on a public interface.
+
+### 3. Expose it through the tunnel
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:8000
+```
+
+That prints a `https://<random>.trycloudflare.com` address, which is enough to
+test from another network right away. For an address that survives restarts,
+create a named tunnel against a domain you control:
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create urban-canopy
+cloudflared tunnel route dns urban-canopy canopy.example.org
+cloudflared tunnel run urban-canopy
+```
+
+### 4. Point the console at it
+
+Open the site, put `https://canopy.example.org` in **API address** and the token
+in **Access token**, then press **Test connection**. Both are remembered in this
+browser's `localStorage`.
+
+The token is deliberately never written into the repository, the query string or
+the shareable link — a static site cannot keep a secret, so the secret belongs to
+the person using it, not to the deployment. **Copy cURL** follows the same rule:
+it emits `$UC_API_TOKEN` rather than the literal value.
+
+### What this does and does not protect
+
+A bearer token behind TLS stops strangers from spending your Google Street View
+quota, which is the main risk of putting this online. It is not a full access
+control system:
+
+- **No rate limiting.** `UC_API_MAX_CONCURRENCY` bounds how many inferences run
+  at once, not how many a token holder may run in a day. Set a budget cap in the
+  Google Cloud console, and add a Cloudflare rate-limiting rule if the endpoint
+  is shared.
+- **A token is a bearer secret.** Anyone holding it is you. Rotate by editing
+  `UC_API_TOKENS` and restarting.
+- **Cloudflare Access** can sit in front of the tunnel for real identity (Google
+  or GitHub sign-in, per-person policies) if a shared token is not enough. The
+  console's token field would then be unused, and browser calls would need
+  `credentials` handling that the current CORS setup does not enable.
+- **Street View imagery** reaches whoever can call the endpoint. Overlays embed
+  Google imagery, which carries redistribution terms worth reading before opening
+  it up widely.
+- **The machine has to be on.** The tunnel dies with it.
+
 ## Trying it without an API
 
 **Load example** renders stored results from a real pipeline run — a single view

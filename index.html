@@ -83,6 +83,23 @@
                     data-i18n="conn.test">Testar conexão</button>
           </div>
           <p class="hint" data-i18n="conn.baseUrlHint" data-i18n-html>Aponte para a instância do <code>urban_canopy.webapi</code> que você está executando.</p>
+        </div>
+
+        <div class="field">
+          <label for="api-token" data-i18n="conn.token">Token de acesso</label>
+          <div class="field__row">
+            <input id="api-token" name="apiToken" type="password" autocomplete="off"
+                   spellcheck="false" data-i18n-placeholder="conn.tokenPlaceholder"
+                   placeholder="deixe vazio se a API não exigir" />
+            <button id="toggle-token" class="btn btn--ghost" type="button"
+                    data-i18n-aria="conn.tokenReveal" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-eye">
+                <path d="M2.4 12S6 5.4 12 5.4 21.6 12 21.6 12 18 18.6 12 18.6 2.4 12 2.4 12Z" />
+                <circle cx="12" cy="12" r="3.1" />
+              </svg>
+            </button>
+          </div>
+          <p class="hint" data-i18n="conn.tokenHint" data-i18n-html>Enviado como <code>Authorization: Bearer</code>. Fica só neste navegador — nunca no repositório nem no link compartilhável.</p>
           <p id="conn-feedback" class="feedback" hidden></p>
           <button id="open-help" class="link-btn" type="button" data-i18n="conn.help">Como executar a API</button>
         </div>
@@ -362,6 +379,10 @@ uvicorn urban_canopy.webapi:app --host 127.0.0.1 --port 8000</code></pre>
   <p data-i18n="help.cors" data-i18n-html>Depois libere a origem deste site no CORS da API:</p>
   <pre><code id="cors-snippet">UC_API_CORS_ORIGINS=https://juanocv.github.io</code></pre>
   <p class="note" data-i18n="help.https" data-i18n-html>Um navegador em HTTPS só aceita chamadas HTTP para <code>localhost</code>.</p>
+  <p data-i18n="help.auth" data-i18n-html>Para acessar de qualquer lugar, ligue a autenticação e exponha a API por HTTPS:</p>
+  <pre><code>UC_API_TOKENS=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+cloudflared tunnel --url http://127.0.0.1:8000</code></pre>
+  <p class="note" data-i18n="help.authHint" data-i18n-html>Cole o token no campo <strong>Token de acesso</strong>.</p>
   <p class="note note--warn" data-i18n="help.key">A API chama uma API paga do Google a cada requisição e não tem autenticação.</p>
 </dialog>
 

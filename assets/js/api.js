@@ -15,7 +15,7 @@ export class ApiError extends Error {
   /**
    * @param {string} message  human-readable summary
    * @param {object} [opts]
-   * @param {"network"|"mixed-content"|"validation"|"busy"|"not-ready"|"multiview"|"server"|"aborted"} [opts.kind]
+   * @param {"network"|"mixed-content"|"validation"|"busy"|"not-ready"|"multiview"|"server"|"aborted"|"unauthorized"} [opts.kind]
    * @param {number} [opts.status]
    * @param {unknown} [opts.detail]  the parsed `detail` field, when present
    */
@@ -95,7 +95,7 @@ function describeValidationDetail(detail) {
     .join(" · ");
 }
 
-async function request(baseUrl, path, { method = "GET", body, signal, timeoutMs } = {}) {
+async function request(baseUrl, path, { method = "GET", body, token, signal, timeoutMs } = {}) {
   if (isMixedContent(baseUrl)) {
     throw new ApiError(t("err.mixedContent"), { kind: "mixed-content" });
   }
@@ -109,12 +109,19 @@ async function request(baseUrl, path, { method = "GET", body, signal, timeoutMs 
   }
   const timer = timeoutMs ? setTimeout(() => controller.abort("timeout"), timeoutMs) : null;
 
+  // A bearer header rather than a cookie: it needs no `credentials` mode, so the
+  // API can keep a permissive CORS policy without granting ambient authority to
+  // every page the browser happens to have open.
+  const headers = {};
+  if (body) headers["Content-Type"] = "application/json";
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   let response;
   try {
     response = await fetch(`${baseUrl}${path}`, {
       method,
       signal: controller.signal,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers: Object.keys(headers).length ? headers : undefined,
       body: body ? JSON.stringify(body) : undefined,
       mode: "cors",
       cache: "no-store",
@@ -132,6 +139,13 @@ async function request(baseUrl, path, { method = "GET", body, signal, timeoutMs 
 
   const detail = payload?.detail ?? null;
 
+  if (response.status === 401 || response.status === 403) {
+    throw new ApiError(t(token ? "err.unauthorized" : "err.tokenRequired"), {
+      kind: "unauthorized",
+      status: response.status,
+      detail,
+    });
+  }
   if (response.status === 422) {
     const described = describeValidationDetail(detail);
     throw new ApiError(described || t("err.validation"), {
@@ -158,7 +172,10 @@ async function request(baseUrl, path, { method = "GET", body, signal, timeoutMs 
 }
 
 export function ping(baseUrl, options = {}) {
-  return request(baseUrl, "/ping", { timeoutMs: 8000, ...options });
+  // The server leaves /ping open, so the token stays home: one less place the
+  // secret travels, and the probe stays a simple request with no preflight.
+  const { token, ...rest } = options;
+  return request(baseUrl, "/ping", { timeoutMs: 8000, ...rest });
 }
 
 export function ready(baseUrl, options = {}) {
@@ -190,11 +207,19 @@ export async function probe(baseUrl, options = {}) {
   }
 }
 
-/** A copy-pasteable cURL invocation for the request the form just built. */
-export function toCurl(baseUrl, path, body) {
+/**
+ * A copy-pasteable cURL invocation for the request the form just built.
+ *
+ * The token is referenced as a shell variable rather than interpolated: this
+ * string routinely ends up in issues, chat messages and shell history, and a
+ * bearer secret should not travel along with it.
+ */
+export function toCurl(baseUrl, path, body, { authenticated = false } = {}) {
   const json = JSON.stringify(body, null, 2).replace(/'/g, `'\\''`);
   return [
+    ...(authenticated ? ["# export UC_API_TOKEN=your-token"] : []),
     `curl -X POST '${baseUrl}${path}' \\`,
+    ...(authenticated ? ['  -H "Authorization: Bearer $UC_API_TOKEN" \\'] : []),
     `  -H 'Content-Type: application/json' \\`,
     `  -d '${json}'`,
   ].join("\n");

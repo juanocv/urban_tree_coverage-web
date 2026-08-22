@@ -8,3 +8,11 @@ Thumbs.db
 # Local tooling
 .claude/
 node_modules/
+
+# Secrets. Nothing in this repository should ever hold a token: the site is
+# static and published, so a committed secret is a published secret.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
