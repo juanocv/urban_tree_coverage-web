@@ -33,6 +33,7 @@ replaced by a substitute.
 | `pitch` | 0° | both |
 | `fov` | 90° | both |
 | `size` | `640x640` | both |
+| `backend` | instance default | both |
 | `refine` | on | both |
 | `allow_vegetation_proxy` | off | both |
 | `return_overlays` | on | both |
@@ -57,6 +58,12 @@ replaced by a substitute.
   provenance (backend, checkpoint, class space, device, checkpoint SHA-256,
   taxonomy and its source).
 - Quality flags, each with an explanation of what it means.
+- A backend selector listing what the connected instance offers, with the
+  instance default marked and anything unusable disabled with its reason. The
+  hint under it names the chosen backend's class space and says whether that
+  space has a tree class at all — `deeplab` does not, which is the one case
+  where **Allow vegetation as a tree proxy** changes the answer instead of
+  changing nothing.
 - Export as JSON or CSV — the CSV uses the same column order as the CLI's
   `views.csv`, so exports interchange with `tree-ai` output — plus copy-as-cURL
   and a shareable link that restores the query.

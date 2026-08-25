@@ -34,6 +34,7 @@ substituído por outro número.
 | `pitch` (inclinação) | 0° | ambos |
 | `fov` (campo de visão) | 90° | ambos |
 | `size` (tamanho) | `640x640` | ambos |
+| `backend` | padrão da instância | ambos |
 | `refine` (refinar máscara) | ligado | ambos |
 | `allow_vegetation_proxy` | desligado | ambos |
 | `return_overlays` | ligado | ambos |
@@ -60,6 +61,12 @@ substituído por outro número.
   (backend, checkpoint, espaço de classes, dispositivo, SHA-256 do checkpoint,
   taxonomia e sua origem).
 - Sinalizadores de qualidade, cada um com a explicação do que significa.
+- Um seletor de backend listando o que a instância conectada oferece, com o
+  padrão dela marcado e o que não estiver utilizável desabilitado com o motivo.
+  A dica abaixo nomeia o espaço de classes do backend escolhido e diz se esse
+  espaço tem classe de árvore — o `deeplab` não tem, e é o único caso em que
+  **Permitir vegetação como proxy de árvore** muda a resposta em vez de não
+  mudar nada.
 - Exportação em JSON ou CSV — o CSV usa a mesma ordem de colunas do `views.csv`
   da CLI, então os arquivos são intercambiáveis com a saída do `tree-ai` — além
   de copiar como cURL e um link que restaura a consulta.

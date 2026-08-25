@@ -13,6 +13,11 @@ import { headingDial } from "./charts.js";
 import { renderSingle, renderMulti, renderBusy, renderError, renderEmpty } from "./render.js";
 import { DEMO_SINGLE, DEMO_MULTI } from "./demo.js";
 
+const escapeHtml = (value) =>
+  String(value ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[c]);
+
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -36,6 +41,24 @@ let inFlight = null;
  */
 const CONFIG_BASE_URL =
   api.normaliseBaseUrl(window.UC_CONFIG?.apiBaseUrl ?? "") || api.DEFAULT_BASE_URL;
+
+/**
+ * What each backend can claim, mirrored from
+ * `urban_canopy.models.factory`. Used to populate the selector before any
+ * connection and to explain the consequences of a choice; a successful probe
+ * replaces it with what the instance actually offers.
+ *
+ * `tree` is the honest bit: a class space without a tree class reports no tree
+ * coverage at all unless the vegetation proxy is turned on.
+ */
+const KNOWN_BACKENDS = [
+  { name: "oneformer", label: "OneFormer", classSpace: "ade20k", tree: true },
+  { name: "mask2former", label: "Mask2Former", classSpace: "ade20k", tree: true },
+  { name: "detectron2", label: "Detectron2", classSpace: "coco_panoptic", tree: true },
+  { name: "deeplab", label: "DeepLab V3+", classSpace: "cityscapes", tree: false },
+];
+
+const backendSelect = $("#backend");
 
 const store = {
   get(key, fallback = null) {
@@ -69,6 +92,7 @@ $("#lang-toggle").addEventListener("click", () => toggleLang());
 
 onLangChange(() => {
   lockBaseUrl(baseUrlInput.readOnly);
+  renderBackendOptions(lastBackendEntries);
   syncNumericReadouts();
   updatePlanPreview();
   refreshConnectionCopy();
@@ -131,6 +155,7 @@ function readForm() {
     offsets: parseOffsets(data.get("offsets") ?? ""),
     nViews: num("nViews", 4),
     minSuccessfulViews: num("minSuccessfulViews", 1),
+    backend: String(data.get("backend") ?? ""),
     refine: data.get("refine") === "on",
     allowVegetationProxy: data.get("allowVegetationProxy") === "on",
     returnOverlays: data.get("returnOverlays") === "on",
@@ -174,6 +199,7 @@ function buildRequest(values) {
       path: "/analyse/single",
       body: {
         ...location,
+        ...(values.backend ? { backend: values.backend } : {}),
         heading: values.heading,
         pitch: values.pitch,
         fov: values.fov,
@@ -187,6 +213,7 @@ function buildRequest(values) {
 
   const body = {
     ...location,
+    ...(values.backend ? { backend: values.backend } : {}),
     reference_heading: values.referenceHeading,
     mode: values.planMode,
     pitch: values.pitch,
@@ -262,6 +289,61 @@ function updateOverlayWarning(values, plannedCount) {
   node.textContent = risky ? t("model.overlaysCost", { max: DEFAULT_MAX_OVERLAY_VIEWS }) : "";
 }
 
+/* --------------------------------------------------------- backends -- */
+
+const labelFor = (name) =>
+  KNOWN_BACKENDS.find((b) => b.name === name)?.label ?? name;
+
+/**
+ * Fill the selector, keeping the current choice when it survives.
+ * @param {Array<{name: string, status?: string, reason?: string|null, default?: boolean, class_space?: string}>} entries
+ */
+let lastBackendEntries = [];
+
+function renderBackendOptions(entries) {
+  // Kept so a language switch can rebuild the labels: these <option>s are
+  // built here rather than marked up, so applyTranslations() cannot reach them.
+  lastBackendEntries = entries;
+  const previous = backendSelect.value;
+  const options = [`<option value="">${escapeHtml(t("model.backendDefault"))}</option>`];
+
+  for (const entry of entries) {
+    const unavailable = entry.status === "unavailable";
+    const suffix = entry.default ? " ★" : "";
+    const label = `${labelFor(entry.name)}${suffix}${
+      unavailable ? ` — ${t("model.backendUnavailable")}` : ""
+    }`;
+    options.push(
+      `<option value="${escapeHtml(entry.name)}"${unavailable ? " disabled" : ""}` +
+        `${entry.reason ? ` title="${escapeHtml(entry.reason)}"` : ""}>` +
+        `${escapeHtml(label)}</option>`
+    );
+  }
+  backendSelect.innerHTML = options.join("");
+
+  // A backend that vanished from the offer falls back to the instance default
+  // rather than silently sending a name the API will refuse.
+  const stillThere = entries.some((e) => e.name === previous && e.status !== "unavailable");
+  backendSelect.value = stillThere ? previous : "";
+  updateBackendHint();
+}
+
+/** Say what the chosen backend implies, especially about the tree class. */
+function updateBackendHint({ offline = false } = {}) {
+  const node = $("#backend-hint");
+  const chosen = backendSelect.value;
+
+  if (!chosen) {
+    node.textContent = offline ? t("model.backendOffline") : t("model.backendHint");
+    return;
+  }
+  const known = KNOWN_BACKENDS.find((b) => b.name === chosen);
+  const space = backendSelect.selectedOptions[0]?.dataset.space ?? known?.classSpace ?? "?";
+  const parts = [t("model.backendSpace", { space })];
+  if (known) parts.push(t(known.tree ? "model.backendHasTree" : "model.backendNoTree"));
+  node.textContent = parts.join(" ");
+}
+
 /* ------------------------------------------------------- connection UI -- */
 
 function setStatus(state) {
@@ -298,7 +380,8 @@ async function testConnection({ quiet = false } = {}) {
   if (!quiet) showConnFeedback(t("conn.testing"), null);
 
   try {
-    const { state, backend } = await api.probe(baseUrl, { token });
+    const { state, backend, backends } = await api.probe(baseUrl, { token });
+    if (backends?.length) renderBackendOptions(backends);
     setStatus(state);
     if (state === "online" && backend) {
       // Remember a working pair here too: the analysis form is not what was
@@ -548,6 +631,7 @@ function writeUrlState(values) {
   params.set("size", values.size);
   if (!values.refine) params.set("refine", "0");
   if (values.allowVegetationProxy) params.set("proxy", "1");
+  if (values.backend) params.set("backend", values.backend);
   if (!values.returnOverlays) params.set("overlays", "0");
 
   history.replaceState(null, "", `${location.pathname}?${params}`);
@@ -593,6 +677,7 @@ function readUrlState() {
   setValue("#minSuccessfulViews", params.get("min_views"));
   if (params.get("refine") === "0") setCheck("refine", false);
   if (params.get("proxy") === "1") setCheck("allowVegetationProxy", true);
+  if (params.get("backend")) setValue("#backend", params.get("backend"));
   if (params.get("overlays") === "0") setCheck("returnOverlays", false);
   if (params.get("api")) setValue("#base-url", params.get("api"));
 }
@@ -615,6 +700,7 @@ form.addEventListener("input", (event) => {
   if (target.name === "viewMode" || target.name === "locationMode" || target.id === "planMode") {
     updateConditionalFields();
   }
+  if (target.id === "backend") updateBackendHint();
   if (
     ["referenceHeading", "offsets", "nViews", "planMode"].includes(target.id) ||
     target.name === "viewMode" ||
@@ -709,11 +795,13 @@ function boot() {
   if (storedToken) tokenInput.value = storedToken;
   lockBaseUrl(true);
 
+  renderBackendOptions(KNOWN_BACKENDS.map((b) => ({ name: b.name, class_space: b.classSpace })));
   readUrlState();
   applyTranslations();
   updateConditionalFields();
   updatePlanPreview();
   refreshConnectionCopy();
+  updateBackendHint({ offline: true });
   renderEmpty(results);
 
   // A quiet probe on load: an unreachable API is normal on a published page.

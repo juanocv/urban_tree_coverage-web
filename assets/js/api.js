@@ -198,10 +198,17 @@ export async function probe(baseUrl, options = {}) {
   await ping(baseUrl, options);
   try {
     const payload = await ready(baseUrl, options);
-    return { state: "online", backend: payload?.backend ?? null };
+    return {
+      state: "online",
+      backend: payload?.backend ?? null,
+      // Older instances answered /ready without a backend listing; an empty
+      // array leaves the caller's provisional list in place.
+      backends: payload?.backends ?? [],
+      defaultBackend: payload?.default_backend ?? null,
+    };
   } catch (error) {
     if (error instanceof ApiError && error.kind === "not-ready") {
-      return { state: "degraded", backend: null };
+      return { state: "degraded", backend: null, backends: [], defaultBackend: null };
     }
     throw error;
   }

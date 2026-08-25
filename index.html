@@ -271,6 +271,14 @@
           <span class="tag" data-i18n="loc.optional">opcional</span>
         </legend>
 
+        <div class="field">
+          <label for="backend" data-i18n="model.backend">Backend de segmentação</label>
+          <select id="backend" name="backend">
+            <option value="" data-i18n="model.backendDefault">Padrão da instância</option>
+          </select>
+          <p class="hint" id="backend-hint" data-i18n="model.backendHint">Cada backend prevê um espaço de classes diferente. Conecte-se à API para ver quais estão disponíveis.</p>
+        </div>
+
         <label class="switch">
           <input type="checkbox" name="refine" checked />
           <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
