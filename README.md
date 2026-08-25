@@ -128,7 +128,7 @@ the deployment.
 ## Running the API
 
 The site is static and has no backend of its own. Start the API from the
-[urban_canopy](https://github.com/juanocv/urban_canopy) repository:
+[urban_canopy](https://github.com/juanocv/urban_canopy) repository's fork:
 
 ```bash
 python -m pip install -e ".[api,ml]"
@@ -138,7 +138,7 @@ uvicorn urban_canopy.webapi:app --host 127.0.0.1 --port 8000
 Then allow this site's origin in the API's CORS settings, in `.env`:
 
 ```bash
-UC_API_CORS_ORIGINS=https://juanocv.github.io
+UC_API_CORS_ORIGINS=https://your_user.github.io
 ```
 
 Paste the API address into the **API connection** field. It is remembered in
@@ -196,7 +196,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ```bash
 UC_API_TOKENS=<the-token-you-generated>
-UC_API_CORS_ORIGINS=https://juanocv.github.io
+UC_API_CORS_ORIGINS=https://your_user.github.io
 ```
 
 `UC_API_TOKENS` takes a comma-separated list, so each person or machine can hold

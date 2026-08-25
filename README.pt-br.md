@@ -132,7 +132,7 @@ estático não consegue guardar segredo, então o segredo pertence a quem usa, n
 
 ## Executando a API
 
-O site é estático e não tem backend próprio. Suba a API a partir do repositório
+O site é estático e não tem backend próprio. Suba a API a partir do fork deste repositório
 [urban_canopy](https://github.com/juanocv/urban_canopy):
 
 ```bash
@@ -143,7 +143,7 @@ uvicorn urban_canopy.webapi:app --host 127.0.0.1 --port 8000
 Depois libere a origem deste site no CORS da API, pelo `.env`:
 
 ```bash
-UC_API_CORS_ORIGINS=https://juanocv.github.io
+UC_API_CORS_ORIGINS=https://seu_usuario.github.io
 ```
 
 Cole o endereço da API no campo **Conexão com a API**. Ele fica guardado no
@@ -201,7 +201,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ```bash
 UC_API_TOKENS=<o-token-que-você-gerou>
-UC_API_CORS_ORIGINS=https://juanocv.github.io
+UC_API_CORS_ORIGINS=https://seu_usuario.github.io
 ```
 
 `UC_API_TOKENS` aceita uma lista separada por vírgulas, então cada pessoa ou
