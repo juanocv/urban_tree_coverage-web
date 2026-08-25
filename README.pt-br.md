@@ -67,6 +67,69 @@ substituído por outro número.
 A interface é bilíngue (pt-BR / inglês), segue o tema claro/escuro do sistema
 com ajuste manual e funciona até 375 px de largura.
 
+## Configurando a conexão
+
+Tudo que diz respeito a alcançar a API vive num único popup, aberto pelo pill de
+status no cabeçalho — ele serve tanto de porta de entrada quanto de indicador,
+mostrando **Sem conexão** até um teste passar e **Conectado** depois disso.
+
+### O endereço da API
+
+O endereço vem preenchido a partir do `assets/js/config.js`. Uma página estática
+não consegue ler `.env` em tempo de execução — não há servidor para lê-lo nem
+etapa de build para embuti-lo —, então o `config.js` é a contraparte publicada
+desse arquivo, escrita pelo `scripts/sync-config.py`. Nada secreto entra ali:
+todo visitante recebe esse arquivo. Neste repositório, só as chaves `UC_WEB_*`
+significam alguma coisa; `UC_API_TOKENS` e `UC_API_CORS_ORIGINS` são
+configurações do servidor e pertencem ao `.env` do `urban_canopy`, onde a API de
+fato as lê.
+
+Há duas formas de definir o endereço publicado. As duas usam o mesmo script e
+podem ser combinadas.
+
+**Variável de repositório, aplicada na publicação.** O endereço não fica no
+repositório de forma alguma. Em *Settings → Secrets and variables → Actions →
+Variables*, crie `UC_WEB_API_BASE_URL`; o workflow do Pages regera o `config.js`
+a partir dela a cada deploy. Trocar o endereço passa a ser editar uma
+configuração e reexecutar o workflow — sem commit. Variável e não secret é a
+escolha certa aqui: o endereço é servido a todo visitante de qualquer forma, e
+quem realmente protege a API é o token.
+
+**`config.js` commitado, gerado localmente.** Coloque o valor no `.env`, rode o
+script e commite o resultado:
+
+```bash
+UC_WEB_API_BASE_URL=https://urban-tree-coverage.tail6b2e17.ts.net
+```
+
+```bash
+python scripts/sync-config.py
+```
+
+A variável de ambiente sobrepõe o `.env` quando ambos existem, e é isso que faz as
+duas formas se comporem: o arquivo commitado é o padrão, e a CI o sobrescreve
+quando a variável de repositório existe. Quando nenhuma das duas está definida —
+uma execução de CI sem variável configurada — o script deixa o `config.js`
+exatamente como foi commitado, de modo que uma variável ausente nunca substitui
+silenciosamente um endereço que funciona pelo `localhost`.
+
+O campo começa bloqueado, porque o padrão publicado normalmente é o certo. O
+botão **Alterar** o destrava apenas naquele navegador; o valor fica guardado no
+`localStorage` e o campo volta a travar sempre que o popup é fechado. Se o
+`config.js` for republicado depois com outro endereço, um override antigo do
+navegador é descartado em vez de encobrir silenciosamente o novo padrão — do
+contrário, editar o `.env` pareceria não surtir efeito.
+
+Restam duas saídas de emergência: `?api=https://...` sobrescreve tudo para um
+link específico, e limpar os dados do site volta ao padrão publicado.
+
+### O token de acesso
+
+Digitado no mesmo popup e guardado no `localStorage`. Ele deliberadamente nunca
+é escrito no repositório, na query string nem no link compartilhável — um site
+estático não consegue guardar segredo, então o segredo pertence a quem usa, não
+à publicação.
+
 ## Executando a API
 
 O site é estático e não tem backend próprio. Suba a API a partir do repositório
@@ -110,9 +173,23 @@ precisa estar em HTTPS — um navegador não deixa uma página HTTPS chamar HTTP
 simples em nada que não seja `localhost`. Um IPv4 público sozinho não resolve
 isso: certificados confiáveis são emitidos para nomes, não para endereços nus.
 
-O caminho que dispensa IP público e abertura de porta no roteador é um túnel da
-Cloudflare: uma conexão de saída a partir da máquina que já roda o modelo, com
-TLS e hostname resolvidos para você.
+Dois túneis resolvem isso sem IP público nem porta aberta no roteador, ambos
+fazendo uma conexão de saída a partir da máquina que já roda o modelo. Escolha
+um:
+
+| | Tailscale Funnel | Cloudflare Tunnel |
+|---|---|---|
+| Endereço fixo | sim, de graça | exige domínio próprio (~US$ 10/ano) |
+| Hostname | `maquina.tailnet.ts.net` | qualquer nome no seu domínio |
+| Sobe junto com a máquina | sim, o `tailscaled` já é serviço | precisa de `cloudflared service install` |
+| Identidade além do token | ACLs do Tailscale | Cloudflare Access |
+
+O túnel rápido da Cloudflare (`--url`) é gratuito, mas o endereço muda a cada
+reinício, o que o torna inadequado como padrão publicado. Um hostname permanente
+na Cloudflare exige um domínio na sua conta, porque o CNAME para
+`<UUID>.cfargotunnel.com` só resolve dentro da rede da Cloudflare — serviços de
+subdomínio grátis não substituem isso. O Tailscale Funnel dá um hostname estável
+com TLS válido sem custo, e por isso aparece primeiro abaixo.
 
 ### 1. Ligue a autenticação
 
@@ -135,7 +212,7 @@ verificações de uptime e a sonda de saúde do próprio túnel sigam funcionand
 inicialização registra qual modo está ativo — se o log disser que a autenticação
 está desligada, a instância está aberta para quem a encontrar.
 
-### 2. Suba a API presa ao localhost
+### 2. Suba a API restrita ao localhost
 
 ```bash
 uvicorn urban_canopy.webapi:app --host 127.0.0.1 --port 8000
@@ -144,28 +221,84 @@ uvicorn urban_canopy.webapi:app --host 127.0.0.1 --port 8000
 Mantenha o `127.0.0.1`. O túnel conecta a partir da mesma máquina, então a API
 nunca precisa escutar numa interface pública.
 
-### 3. Exponha pelo túnel
+### 3. Exponha o serviço via _tunneling_
+
+**Tailscale Funnel** — hostname estável, gratuito, sem precisar de domínio:
+
+```bash
+winget install --id tailscale.tailscale
+```
+
+```bash
+tailscale funnel 8000
+```
+
+O Funnel precisa ser habilitado uma vez nas ACLs do tailnet; o comando aponta o
+link exato caso não esteja. O `https://<maquina>.<tailnet>.ts.net` resultante
+não muda entre reinícios, e o `tailscaled` já roda como serviço, então o túnel
+volta junto com a máquina.
+
+**Cloudflare Tunnel** — para um hostname num domínio seu. Um endereço
+descartável para testar:
 
 ```bash
 cloudflared tunnel --url http://127.0.0.1:8000
 ```
 
-Isso imprime um endereço `https://<aleatório>.trycloudflare.com`, já suficiente
-para testar de outra rede na hora. Para um endereço que sobreviva a reinícios,
-crie um túnel nomeado contra um domínio seu:
+Isso imprime um `https://<aleatório>.trycloudflare.com` que dura apenas enquanto
+o comando estiver rodando. Para um permanente (pago), contra um domínio da sua conta
+Cloudflare:
 
 ```bash
 cloudflared tunnel login
+```
+
+```bash
 cloudflared tunnel create urban-canopy
+```
+
+```bash
 cloudflared tunnel route dns urban-canopy canopy.exemplo.org
+```
+
+Depois escreva o `~/.cloudflared/config.yml`, apontando o hostname para a porta
+local e terminando com uma regra catch-all, que o `cloudflared` exige:
+
+```yaml
+tunnel: urban-canopy
+credentials-file: C:/Users/voce/.cloudflared/<UUID>.json
+
+ingress:
+  - hostname: canopy.exemplo.org
+    service: http://127.0.0.1:8000
+  - service: http_status:404
+```
+
+```bash
 cloudflared tunnel run urban-canopy
 ```
 
-### 4. Aponte o console
+Para sobreviver a reinícios, instale como serviço (shell como administrador):
 
-Abra o site, coloque `https://canopy.exemplo.org` em **Endereço da API** e o
-token em **Token de acesso**, e clique em **Testar conexão**. Os dois ficam
-guardados no `localStorage` deste navegador.
+```bash
+cloudflared service install
+```
+
+Em qualquer um dos dois, a API em si continua sendo um processo que você inicia;
+o serviço do túnel voltar no boot não traz o `uvicorn` junto.
+
+### 4. Aponte o console ao novo endereço
+
+Coloque o endereço no `.env`, regere o `config.js` e commite:
+
+```bash
+python scripts/sync-config.py
+```
+
+Depois abra o site, clique no pill de status, cole o token em **Token de
+acesso** e clique em **Testar conexão**. O pill passa a mostrar **Conectado**.
+Para um endereço pontual, que não deva virar o padrão publicado, use o botão
+**Alterar** e digite-o.
 
 O token nunca é escrito no repositório, na query string nem no link
 compartilhável — um site estático não consegue guardar segredo, então o segredo
@@ -184,11 +317,11 @@ controle de acesso:
   uma regra de rate limiting na Cloudflare se o endpoint for compartilhado.
 - **Token é segredo ao portador.** Quem o tem, é você. Para rotacionar, edite o
   `UC_API_TOKENS` e reinicie.
-- **O Cloudflare Access** pode ficar na frente do túnel para identidade de
-  verdade (login Google ou GitHub, políticas por pessoa) se um token
-  compartilhado não bastar. O campo de token do console ficaria sem uso, e as
-  chamadas do navegador precisariam de tratamento de `credentials` que a
-  configuração de CORS atual não habilita.
+- **Identidade de verdade** está disponível nos dois provedores, se um token
+  compartilhado não bastar: Cloudflare Access (login Google ou GitHub, políticas
+  por pessoa) ou as ACLs do Tailscale. Ambos autenticam por cookie, então o
+  campo de token do console ficaria sem uso e as chamadas do navegador
+  precisariam de tratamento de `credentials` que o CORS atual não habilita.
 - **As imagens do Street View** chegam a quem conseguir chamar o endpoint. As
   sobreposições embutem imagens do Google, que têm termos de redistribuição que
   vale ler antes de abrir demais.
@@ -215,12 +348,14 @@ python -m http.server 4173
 ```text
 index.html              marcação e toda a superfície de entrada
 assets/css/app.css      tokens de design, layout, componentes
+assets/js/config.js     padrões publicados, gerados do .env
 assets/js/i18n.js       textos pt-BR / inglês e a passagem de tradução
 assets/js/api.js        cliente da API; normaliza falhas em ApiError
 assets/js/charts.js     anel, barras, bússola e barra de dispersão em SVG
 assets/js/render.js     payload → DOM dos resultados
 assets/js/demo.js       payloads de exemplo armazenados
 assets/js/app.js        estado do formulário, validação, requisições, exportação
+scripts/sync-config.py  .env -> assets/js/config.js
 ```
 
 O `assets/js/app.js` espelha o `urban_canopy.core.viewplan.plan_headings` apenas

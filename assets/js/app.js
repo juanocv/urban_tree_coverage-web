@@ -21,6 +21,8 @@ const results = $("#results");
 const statusPill = $("#status-pill");
 const baseUrlInput = $("#base-url");
 const tokenInput = $("#api-token");
+const unlockButton = $("#unlock-base-url");
+const connectionDialog = $("#connection-dialog");
 
 /** The last thing rendered, kept so a language switch can re-render it. */
 let lastRender = null;
@@ -28,12 +30,22 @@ let inFlight = null;
 
 /* ------------------------------------------------------------- storage -- */
 
+/**
+ * The address baked in by `scripts/sync-config.py`, or the built-in fallback.
+ * A static page cannot read .env, so this file stands in for it.
+ */
+const CONFIG_BASE_URL =
+  api.normaliseBaseUrl(window.UC_CONFIG?.apiBaseUrl ?? "") || api.DEFAULT_BASE_URL;
+
 const store = {
   get(key, fallback = null) {
     try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
   },
   set(key, value) {
     try { localStorage.setItem(key, value); } catch { /* storage unavailable */ }
+  },
+  remove(key) {
+    try { localStorage.removeItem(key); } catch { /* storage unavailable */ }
   },
 };
 
@@ -56,6 +68,7 @@ $("#theme-toggle").addEventListener("click", () => {
 $("#lang-toggle").addEventListener("click", () => toggleLang());
 
 onLangChange(() => {
+  lockBaseUrl(baseUrlInput.readOnly);
   syncNumericReadouts();
   updatePlanPreview();
   refreshConnectionCopy();
@@ -100,8 +113,10 @@ function readForm() {
   const text = (name) => String(data.get(name) ?? "").trim();
 
   return {
-    baseUrl: api.normaliseBaseUrl(text("baseUrl")),
-    apiToken: text("apiToken"),
+    // Read straight off the elements: these two live in the connection dialog,
+    // outside <form>, so FormData never sees them.
+    baseUrl: api.normaliseBaseUrl(baseUrlInput.value),
+    apiToken: tokenInput.value.trim(),
     locationMode: data.get("locationMode") ?? "address",
     viewMode: data.get("viewMode") ?? "single",
     address: text("address"),
@@ -264,6 +279,7 @@ function refreshConnectionCopy() {
 function showConnFeedback(message, tone) {
   const node = $("#conn-feedback");
   node.hidden = !message;
+  if (!message) { node.textContent = ""; node.className = "feedback"; return; }
   node.textContent = message ?? "";
   node.className = `feedback${tone ? ` feedback--${tone}` : ""}`;
 }
@@ -271,6 +287,9 @@ function showConnFeedback(message, tone) {
 async function testConnection({ quiet = false } = {}) {
   const baseUrl = api.normaliseBaseUrl(baseUrlInput.value);
   const token = tokenInput.value.trim();
+  const button = $("#test-connection");
+  button.classList.toggle("is-busy", !quiet);
+  button.disabled = !quiet;
   if (!baseUrl) {
     setStatus("offline");
     return;
@@ -282,6 +301,16 @@ async function testConnection({ quiet = false } = {}) {
     const { state, backend } = await api.probe(baseUrl, { token });
     setStatus(state);
     if (state === "online" && backend) {
+      // Remember a working pair here too: the analysis form is not what was
+      // just proved to work.
+      store.set("utc.token", token);
+      if (baseUrl && baseUrl !== CONFIG_BASE_URL) {
+        store.set("utc.baseUrl", baseUrl);
+        store.set("utc.baseUrl.configuredAgainst", CONFIG_BASE_URL);
+      } else {
+        store.remove("utc.baseUrl");
+        store.remove("utc.baseUrl.configuredAgainst");
+      }
       showConnFeedback(
         `${backend.backend} · ${backend.class_space ?? "?"} · ${backend.device ?? "?"}`,
         "ok"
@@ -292,6 +321,9 @@ async function testConnection({ quiet = false } = {}) {
   } catch (error) {
     setStatus(error.kind === "unauthorized" ? "unauthorized" : "error");
     showConnFeedback(error.message, error.kind === "unauthorized" ? "warn" : "error");
+  } finally {
+    button.classList.remove("is-busy");
+    button.disabled = false;
   }
 }
 
@@ -334,7 +366,13 @@ form.addEventListener("submit", async (event) => {
   errorNode.textContent = problem ?? "";
   if (problem) return;
 
-  store.set("utc.baseUrl", values.baseUrl);
+  if (values.baseUrl && values.baseUrl !== CONFIG_BASE_URL) {
+    store.set("utc.baseUrl", values.baseUrl);
+    store.set("utc.baseUrl.configuredAgainst", CONFIG_BASE_URL);
+  } else {
+    store.remove("utc.baseUrl");
+    store.remove("utc.baseUrl.configuredAgainst");
+  }
   // Kept out of the URL on purpose: a shareable link must never carry a secret.
   store.set("utc.token", values.apiToken);
   writeUrlState(values);
@@ -584,7 +622,10 @@ form.addEventListener("input", (event) => {
   ) {
     updatePlanPreview();
   }
-  if (target.id === "base-url") refreshConnectionCopy();
+});
+
+connectionDialog.addEventListener("input", (event) => {
+  if (event.target.id === "base-url") refreshConnectionCopy();
 });
 
 // A number box left out of range on blur snaps back to what the slider holds.
@@ -599,8 +640,39 @@ $("#toggle-token").addEventListener("click", (event) => {
   button.setAttribute("aria-pressed", String(!revealed));
 });
 
+/**
+ * Lock or unlock the address field.
+ *
+ * It starts locked because the published default is normally the right one;
+ * "Change" is the deliberate act of overriding it for this browser. Re-locking
+ * whenever the dialog closes means reopening always shows the same safe state.
+ */
+function lockBaseUrl(locked) {
+  baseUrlInput.readOnly = locked;
+  unlockButton.setAttribute("aria-pressed", String(!locked));
+  baseUrlInput.classList.toggle("is-locked", locked);
+  // Owned entirely here, not by applyTranslations(): the text depends on the
+  // lock state, which a data-i18n pass would happily overwrite.
+  $("#base-url-hint").textContent = t(locked ? "conn.changeLocked" : "conn.changeUnlocked");
+}
+
+unlockButton.addEventListener("click", () => {
+  const wasLocked = baseUrlInput.readOnly;
+  lockBaseUrl(!wasLocked);
+  if (wasLocked) {
+    baseUrlInput.focus();
+    baseUrlInput.select();
+  }
+});
+
+connectionDialog.addEventListener("close", () => lockBaseUrl(true));
+
+statusPill.addEventListener("click", () => {
+  showConnFeedback(null);
+  connectionDialog.showModal();
+});
+
 $("#test-connection").addEventListener("click", () => testConnection());
-statusPill.addEventListener("click", () => testConnection());
 
 $("#open-help").addEventListener("click", () => $("#help-dialog").showModal());
 
@@ -619,10 +691,23 @@ $("#geolocate").addEventListener("click", () => {
 /* ----------------------------------------------------------------- boot -- */
 
 function boot() {
+  // An override is remembered only while the published default it replaced is
+  // still the published default. Redeploying config.js with a new address
+  // therefore wins, instead of being shadowed forever by a stale localStorage
+  // entry the user cannot see.
   const storedBase = store.get("utc.baseUrl");
-  if (storedBase) baseUrlInput.value = storedBase;
+  const storedAgainst = store.get("utc.baseUrl.configuredAgainst");
+  if (storedBase && storedAgainst === CONFIG_BASE_URL) {
+    baseUrlInput.value = storedBase;
+  } else {
+    baseUrlInput.value = CONFIG_BASE_URL;
+    store.remove("utc.baseUrl");
+    store.remove("utc.baseUrl.configuredAgainst");
+  }
+
   const storedToken = store.get("utc.token");
   if (storedToken) tokenInput.value = storedToken;
+  lockBaseUrl(true);
 
   readUrlState();
   applyTranslations();
